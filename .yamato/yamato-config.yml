@@ -26,11 +26,10 @@ build_mac:
       paths:
         - build/**
 
-
 build_win:
   name: Build Win
   agent:
-    type: Unity::VM::osx
+    type: Unity::VM
     image: slough-ops/win10-base
     flavor: b1.small
   commands:
