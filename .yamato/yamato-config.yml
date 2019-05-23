@@ -26,6 +26,7 @@ build_mac:
       paths:
         - build/**
 
+
 build_win:
   name: Build Win
   agent:
