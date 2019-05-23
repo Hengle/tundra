@@ -1,0 +1,39 @@
+# ./yamato/yamato-config.yml
+
+build_linux:
+  name: Build Linux
+  agent:
+      type: Unity::VM
+      image: slough-ops/ubuntu-18.04-base:stable
+      flavor: b1.small
+  commands:
+      - perl build.pl
+  artifacts:
+    build:
+      paths:
+        - build/**
+
+build_mac:
+  name: Build Mac
+  agent:
+    type: Unity::VM::osx
+    image: buildfarm/mac:stable
+    flavor: m1.mac
+  commands:
+      - perl build.pl
+  artifacts:
+    build:
+      paths:
+        - build/**
+
+build_win:
+  name: Build Win
+  agent:
+    type: Unity::VM::osx
+    image: slough-ops/win10-base
+  commands:
+      - perl build.pl
+  artifacts:
+    build:
+      paths:
+        - build/**        
