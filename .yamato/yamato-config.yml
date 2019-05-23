@@ -32,6 +32,7 @@ build_win:
   agent:
     type: Unity::VM::osx
     image: slough-ops/win10-base
+    flavor: b1.small
   commands:
       - perl build.pl
   artifacts:
