@@ -30,7 +30,7 @@ build_win:
   name: Build Win
   agent:
     type: Unity::VM
-    image: slough-ops/win10-base
+    image: sdet/gamecode_win10
     flavor: b1.small
   commands:
       - perl build.pl
