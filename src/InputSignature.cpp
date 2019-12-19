@@ -103,7 +103,7 @@ static void ReportChangedInputFiles(JsonWriter *msg, const FrozenArray<Frozen::N
 
 static void ReportValueWithOptionalTruncation(JsonWriter *msg, const char *keyName, const char *truncatedKeyName, const FrozenString &value)
 {
-    size_t len = strlen(value);
+    size_t len = value ? strlen(value) : 0;
     const size_t maxLen = KB(64);
     JsonWriteKeyName(msg, keyName);
     JsonWriteValueString(msg, value, maxLen);
@@ -126,8 +126,10 @@ static void ReportInputSignatureChanges(
     int sha_extension_hash_count,
     ThreadState *thread_state)
 {
-    if (strcmp(dagnode->m_Action, previously_built_node->m_Action) != 0)
+    if (dagnode->m_Action.Get() || previously_built_node->m_Action.Get())
     {
+      if (!dagnode->m_Action.Get() || !previously_built_node->m_Action.Get() || strcmp(dagnode->m_Action, previously_built_node->m_Action) != 0)
+      {
         JsonWriteStartObject(msg);
 
         JsonWriteKeyName(msg, "key");
@@ -137,6 +139,7 @@ static void ReportInputSignatureChanges(
         ReportValueWithOptionalTruncation(msg, "oldvalue", "oldvalue_truncated", previously_built_node->m_Action);
 
         JsonWriteEndObject(msg);
+      }
     }
 
     bool explicitInputFilesListChanged = dagnode->m_InputFiles.GetCount() != previously_built_node->m_InputFiles.GetCount();
@@ -352,7 +355,8 @@ bool CheckInputSignatureToSeeNodeNeedsExecuting(BuildQueue *queue, ThreadState *
     }
 
     // Start with command line action. If that changes, we'll definitely have to rebuild.
-    HashAddString(&sighash, dagnode->m_Action);
+    if (dagnode->m_Action != nullptr)
+      HashAddString(&sighash, dagnode->m_Action);
     HashAddSeparator(&sighash);
 
     const Frozen::ScannerData *scanner = dagnode->m_Scanner;

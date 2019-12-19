@@ -19,6 +19,7 @@
 #include "DigestCache.hpp"
 #include "SharedResources.hpp"
 #include "HumanActivityDetection.hpp"
+#include "Actions.hpp"
 #include "InputSignature.hpp"
 #include "MakeDirectories.hpp"
 #include "BuildLoop.hpp"
@@ -46,47 +47,15 @@ static int SlowCallback(void *user_data)
     return sendNextCallbackIn;
 }
 
-static ExecResult WriteTextFile(const char *payload, const char *target_file, MemAllocHeap *heap)
-{
-    ExecResult result;
-    char tmpBuffer[1024];
 
-    memset(&result, 0, sizeof(result));
 
-    FILE *f = fopen(target_file, "wb");
-    if (!f)
-    {
-        InitOutputBuffer(&result.m_OutputBuffer, heap);
-
-        snprintf(tmpBuffer, sizeof(tmpBuffer), "Error opening for writing the file: %s, error: %s", target_file, strerror(errno));
-        EmitOutputBytesToDestination(&result, tmpBuffer, strlen(tmpBuffer));
-
-        result.m_ReturnCode = 1;
-        return result;
-    }
-    int length = strlen(payload);
-    int written = fwrite(payload, sizeof(char), length, f);
-    fclose(f);
-
-    if (written == length)
-        return result;
-
-    InitOutputBuffer(&result.m_OutputBuffer, heap);
-
-    snprintf(tmpBuffer, sizeof(tmpBuffer), "fwrite was supposed to write %d bytes to %s, but wrote %d bytes", length, target_file, written);
-    EmitOutputBytesToDestination(&result, tmpBuffer, strlen(tmpBuffer));
-
-    result.m_ReturnCode = 1;
-    return result;
-}
 
 NodeBuildResult::Enum RunAction(BuildQueue *queue, ThreadState *thread_state, RuntimeNode *node, Mutex *queue_lock)
 {
     const Frozen::DagNode *node_data = node->m_DagNode;
-    const bool isWriteFileAction = node->m_DagNode->m_Flags & Frozen::DagNode::kFlagIsWriteTextFileAction;
     const char *cmd_line = node_data->m_Action;
 
-    if (!isWriteFileAction && (!cmd_line || cmd_line[0] == '\0'))
+    if (node_data->m_ActionType == Frozen::ActionType::kRunShellCommand && (!cmd_line || cmd_line[0] == '\0'))
         return NodeBuildResult::kRanSuccesfully;
 
     StatCache *stat_cache = queue->m_Config.m_StatCache;
@@ -103,8 +72,6 @@ NodeBuildResult::Enum RunAction(BuildQueue *queue, ThreadState *thread_state, Ru
         env_vars[i].m_Name = node_data->m_EnvVars[i].m_Name;
         env_vars[i].m_Value = node_data->m_EnvVars[i].m_Value;
     }
-
-    ExecResult result = {0, false};
 
     auto FailWithPreparationError = [thread_state,node_data, queue_lock](const char* formatString, ...) -> NodeBuildResult::Enum
     {
@@ -207,77 +174,90 @@ NodeBuildResult::Enum RunAction(BuildQueue *queue, ThreadState *thread_state, Ru
     bool requireFrontendRerun = false;
 
     ValidationResult passedOutputValidation = ValidationResult::Pass;
-    if (0 == result.m_ReturnCode)
-    {
-        Log(kSpam, "Launching process");
-        TimingScope timing_scope(&g_Stats.m_ExecCount, &g_Stats.m_ExecTimeCycles);
-        ProfilerScope prof_scope(annotation, profiler_thread_id);
+    ProfilerScope prof_scope(annotation, profiler_thread_id);
 
-        uint64_t *pre_timestamps = (uint64_t *)LinearAllocate(&thread_state->m_ScratchAlloc, n_outputs, (size_t)sizeof(uint64_t));
+    uint64_t *pre_timestamps = (uint64_t *)LinearAllocate(&thread_state->m_ScratchAlloc, n_outputs, (size_t)sizeof(uint64_t));
 
-        bool allowUnwrittenOutputFiles = (node_data->m_Flags & Frozen::DagNode::kFlagAllowUnwrittenOutputFiles);
-        if (!allowUnwrittenOutputFiles)
-            for (int i = 0; i < n_outputs; i++)
-            {
-                FileInfo info = GetFileInfo(node_data->m_OutputFiles[i].m_Filename);
-                pre_timestamps[i] = info.m_Timestamp;
-            }
-
-        if (isWriteFileAction)
-            result = WriteTextFile(node_data->m_Action, node_data->m_OutputFiles[0].m_Filename, thread_state->m_Queue->m_Config.m_Heap);
-        else
+    bool allowUnwrittenOutputFiles = (node_data->m_Flags & Frozen::DagNode::kFlagAllowUnwrittenOutputFiles);
+    if (!allowUnwrittenOutputFiles)
+        for (int i = 0; i < n_outputs; i++)
         {
+            FileInfo info = GetFileInfo(node_data->m_OutputFiles[i].m_Filename);
+            pre_timestamps[i] = info.m_Timestamp;
+        }
+
+    ExecResult result = {0, false};
+
+    switch(node_data->m_ActionType)
+    {
+        case Frozen::ActionType::kRunShellCommand:
+        {
+            Log(kSpam, "Launching process");
+            TimingScope timing_scope(&g_Stats.m_ExecCount, &g_Stats.m_ExecTimeCycles);
+
             last_cmd_line = cmd_line;
             result = ExecuteProcess(cmd_line, env_count, env_vars, thread_state->m_Queue->m_Config.m_Heap, job_id, false, SlowCallback, &slowCallbackData);
-            passedOutputValidation = ValidateExecResultAgainstAllowedOutput(&result, node_data);
-        }
 
-        if (passedOutputValidation == ValidationResult::Pass && !allowUnwrittenOutputFiles)
+            Log(kSpam, "Process return code %d", result.m_ReturnCode);
+            break;
+        }
+        case Frozen::ActionType::kWriteTextFile:
         {
-            for (int i = 0; i < n_outputs; i++)
-            {
-                FileInfo info = GetFileInfo(node_data->m_OutputFiles[i].m_Filename);
-                bool untouched = pre_timestamps[i] == info.m_Timestamp;
-                untouched_outputs[i] = untouched;
-                if (untouched)
-                    passedOutputValidation = ValidationResult::UnwrittenOutputFileFail;
-            }
+            result = WriteTextFile(node_data->m_Action, node_data->m_OutputFiles[0].m_Filename, thread_state->m_Queue->m_Config.m_Heap);
+            break;
         }
+        case Frozen::ActionType::kCopyFile:
+        {
+            result = CopyFile(node_data->m_InputFiles[0].m_Filename, node_data->m_OutputFiles[0].m_Filename, thread_state->m_Queue->m_Config.m_StatCache, thread_state->m_Queue->m_Config.m_Heap);
+            break;
+        }
+    }
 
-        auto VerifyNodeGlobSignatures = [=]() -> bool {
-            for (const Frozen::DagGlobSignature &sig : node->m_DagNode->m_GlobSignatures)
-            {
-                HashDigest digest = CalculateGlobSignatureFor(sig.m_Path, sig.m_Filter, sig.m_Recurse, thread_state->m_Queue->m_Config.m_Heap, &thread_state->m_ScratchAlloc);
+    passedOutputValidation = ValidateExecResultAgainstAllowedOutput(&result, node_data);
 
-                // Compare digest with the one stored in the signature block
-                if (0 != memcmp(&digest, &sig.m_Digest, sizeof digest))
-                    return false;
-            }
-            return true;
-        };
+    if (passedOutputValidation == ValidationResult::Pass && !allowUnwrittenOutputFiles)
+    {
+        for (int i = 0; i < n_outputs; i++)
+        {
+            FileInfo info = GetFileInfo(node_data->m_OutputFiles[i].m_Filename);
+            bool untouched = pre_timestamps[i] == info.m_Timestamp;
+            untouched_outputs[i] = untouched;
+            if (untouched)
+                passedOutputValidation = ValidationResult::UnwrittenOutputFileFail;
+        }
+    }
 
-        auto VerifyFileSignatures = [=]() -> bool {
-            // Check timestamps of frontend files used to produce the DAG
-            for (const Frozen::DagFileSignature &sig : node->m_DagNode->m_FileSignatures)
-            {
-                const char *path = sig.m_Path;
+    auto VerifyNodeGlobSignatures = [=]() -> bool {
+        for (const Frozen::DagGlobSignature &sig : node->m_DagNode->m_GlobSignatures)
+        {
+            HashDigest digest = CalculateGlobSignatureFor(sig.m_Path, sig.m_Filter, sig.m_Recurse, thread_state->m_Queue->m_Config.m_Heap, &thread_state->m_ScratchAlloc);
 
-                uint64_t timestamp = sig.m_Timestamp;
+            // Compare digest with the one stored in the signature block
+            if (0 != memcmp(&digest, &sig.m_Digest, sizeof digest))
+                return false;
+        }
+        return true;
+    };
+
+    auto VerifyFileSignatures = [=]() -> bool {
+        // Check timestamps of frontend files used to produce the DAG
+        for (const Frozen::DagFileSignature &sig : node->m_DagNode->m_FileSignatures)
+        {
+            const char *path = sig.m_Path;
+
+            uint64_t timestamp = sig.m_Timestamp;
                 FileInfo info = GetFileInfo(path);
 
-                if (info.m_Timestamp != timestamp)
-                    return false;
-            }
-            return true;
-        };
+            if (info.m_Timestamp != timestamp)
+                return false;
+        }
+        return true;
+    };
 
-        if (!VerifyNodeGlobSignatures())
-            requireFrontendRerun = true;
-        if (!VerifyFileSignatures())
-            requireFrontendRerun = true;
-
-        Log(kSpam, "Process return code %d", result.m_ReturnCode);
-    }
+    if (!VerifyNodeGlobSignatures())
+        requireFrontendRerun = true;
+    if (!VerifyFileSignatures())
+        requireFrontendRerun = true;
 
     for (const FrozenFileAndHash &output : node_data->m_OutputFiles)
     {

@@ -17,6 +17,16 @@ enum Enum
 };
 }
 
+namespace ActionType
+{
+    enum Enum
+    {
+        kRunShellCommand = 0,
+        kWriteTextFile = 1,
+        kCopyFile = 2
+    };
+}
+
 struct ScannerData
 {
     FrozenEnum<ScannerType::Enum, int32_t> m_ScannerType;
@@ -93,11 +103,12 @@ struct DagNode
         //if not set, we fail the build when a command prints anything unexpected to stdout or stderr
         kFlagAllowUnexpectedOutput = 1 << 3,
 
-        kFlagIsWriteTextFileAction = 1 << 4,
+    // kFlagIsWriteTextFileAction = 1 << 4, is now unused
         kFlagAllowUnwrittenOutputFiles = 1 << 5,
         kFlagBanContentDigestForInputs = 1 << 6
     };
 
+    uint32_t m_ActionType;
     FrozenString m_Action;
     FrozenString m_Annotation;
     FrozenArray<int32_t> m_Dependencies;
@@ -127,7 +138,7 @@ struct SharedResourceData
 
 struct Dag
 {
-    static const uint32_t MagicNumber = 0x2B29024f ^ kTundraHashMagic;
+    static const uint32_t MagicNumber = 0x2B89027f ^ kTundraHashMagic;
 
     uint32_t m_MagicNumber;
 

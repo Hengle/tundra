@@ -310,6 +310,7 @@ static bool WriteNodes(
         const int32_t i = order[ni].m_Node;
         const JsonObjectValue *node = nodes->m_Values[i]->AsObject();
 
+        const char *type = FindStringValue(node, "ActionType");
         const char *action = FindStringValue(node, "Action");
         const char *annotation = FindStringValue(node, "Annotation");
         const JsonArrayValue *deps = FindArrayValue(node, "Deps");
@@ -323,6 +324,21 @@ static bool WriteNodes(
         const JsonArrayValue *frontend_rsps = FindArrayValue(node, "FrontendResponseFiles");
         const JsonArrayValue *allowedOutputSubstrings = FindArrayValue(node, "AllowedOutputSubstrings");
         const char *writetextfile_payload = FindStringValue(node, "WriteTextFilePayload");
+
+        Frozen::ActionType::Enum actionType = Frozen::ActionType::kRunShellCommand;
+        if (writetextfile_payload != nullptr)
+            actionType = Frozen::ActionType::kWriteTextFile;
+        else if(type != nullptr)
+        {
+            if (strcmp(type, "RunShellCommand") == 0)
+                actionType = Frozen::ActionType::kRunShellCommand;
+            else if (strcmp(type, "WriteTextFile") == 0)
+                actionType = Frozen::ActionType::kWriteTextFile;
+            else if (strcmp(type, "CopyFile") == 0)
+                actionType = Frozen::ActionType::kCopyFile;
+        }
+
+        BinarySegmentWriteInt32(node_data_seg, actionType);
 
         if (writetextfile_payload == nullptr)
             WriteStringPtr(node_data_seg, str_seg, action);
@@ -370,6 +386,11 @@ static bool WriteNodes(
         {
             BinarySegmentWriteInt32(node_data_seg, 0);
             BinarySegmentWriteNullPointer(node_data_seg);
+        }
+
+        if (actionType == Frozen::ActionType::kCopyFile && (inputs->m_Count != 1 || outputs->m_Count != 1))
+        {
+            return false;
         }
 
         WriteFileArray(node_data_seg, array2_seg, str_seg, inputs);
@@ -460,9 +481,6 @@ static bool WriteNodes(
         flags |= GetNodeFlag(node, "AllowUnexpectedOutput", Frozen::DagNode::kFlagAllowUnexpectedOutput, false);
         flags |= GetNodeFlag(node, "AllowUnwrittenOutputFiles", Frozen::DagNode::kFlagAllowUnwrittenOutputFiles, false);
         flags |= GetNodeFlag(node, "BanContentDigestForInputs", Frozen::DagNode::kFlagBanContentDigestForInputs, false);
-
-        if (writetextfile_payload != nullptr)
-            flags |= Frozen::DagNode::kFlagIsWriteTextFileAction;
 
         BinarySegmentWriteUint32(node_data_seg, flags);
         BinarySegmentWriteUint32(node_data_seg, reverse_remap[ni]);

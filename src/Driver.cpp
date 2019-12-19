@@ -984,8 +984,16 @@ static void save_node_sharedcode(bool nodeWasBuiltSuccesfully, const HashDigest 
         BinarySegmentWriteStringData(segments.string, GetFileNameFrom(src_node->m_OutputDirectories[i]));
     }
 
+  if (src_node->m_Action)
+  {
     BinarySegmentWritePointer(segments.built_nodes, BinarySegmentPosition(segments.string));
     BinarySegmentWriteStringData(segments.string, src_node->m_Action);
+  }
+  else
+  {
+    BinarySegmentWriteNullPointer(segments.built_nodes);
+  }
+
 }
 
 static bool node_was_used_by_this_dag_previously(const Frozen::BuiltNode *previously_built_node, uint32_t current_dag_identifier)

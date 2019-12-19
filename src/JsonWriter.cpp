@@ -103,43 +103,46 @@ void JsonWriteValueString(JsonWriter *writer, const char *value, size_t maxLen)
 
     JsonWriteChar(writer, '"');
 
-    size_t len = 0;
-    while (*value != 0 && len < maxLen)
+    if (value != nullptr)
     {
-        char ch = *(value++);
-        if (ch == '"')
+        size_t len = 0;
+        while (*value != 0 && len < maxLen)
         {
-            JsonWrite(writer, "\\\"", 2);
+            char ch = *(value++);
+            if (ch == '"')
+            {
+                JsonWrite(writer, "\\\"", 2);
+            }
+            else if (ch == '\\')
+            {
+                JsonWrite(writer, "\\\\", 2);
+            }
+            else if (ch == 0x0A)
+            {
+                JsonWrite(writer, "\\n", 2);
+            }
+            else if (ch == 0x0D)
+            {
+                JsonWrite(writer, "\\r", 2);
+            }
+            else if (ch == 0x09)
+            {
+                JsonWrite(writer, "\\t", 2);
+            }
+            else if (ch == 0x0C)
+            {
+                JsonWrite(writer, "\\f", 2);
+            }
+            else if (ch == 0x08)
+            {
+                JsonWrite(writer, "\\b", 2);
+            }
+            else
+            {
+                JsonWriteChar(writer, ch);
+            }
+            ++len;
         }
-        else if (ch == '\\')
-        {
-            JsonWrite(writer, "\\\\", 2);
-        }
-        else if (ch == 0x0A)
-        {
-            JsonWrite(writer, "\\n", 2);
-        }
-        else if (ch == 0x0D)
-        {
-            JsonWrite(writer, "\\r", 2);
-        }
-        else if (ch == 0x09)
-        {
-            JsonWrite(writer, "\\t", 2);
-        }
-        else if (ch == 0x0C)
-        {
-            JsonWrite(writer, "\\f", 2);
-        }
-        else if (ch == 0x08)
-        {
-            JsonWrite(writer, "\\b", 2);
-        }
-        else
-        {
-            JsonWriteChar(writer, ch);
-        }
-        ++len;
     }
 
     JsonWriteChar(writer, '"');

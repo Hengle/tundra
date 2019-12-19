@@ -81,6 +81,9 @@ FileInfo GetFileInfo(const char *path)
     else if ((stbuf.st_mode & S_IFMT) == S_IFREG)
         flags |= FileInfo::kFlagFile;
 
+    if ((stbuf.st_mode & S_IWUSR) == 0)
+      flags |= FileInfo::kFlagReadOnly;
+
     result.m_Flags = flags;
     result.m_Timestamp = stbuf.st_mtime;
     result.m_Size = stbuf.st_size;
